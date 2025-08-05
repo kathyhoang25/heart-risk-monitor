@@ -1,0 +1,72 @@
+---
+title: "Heart Risk Monitor"
+format: pdf
+editor: visual
+execute:
+  echo: true
+---
+
+## \## Load DuckDB + Data
+
+```{r}
+library(DBI)
+library(duckdb)
+
+# Connect to DuckDB
+con <- dbConnect(duckdb::duckdb(), dbdir = "duckdb/heart.duckdb")
+
+# Load CSV into DuckDB (only run this once)
+dbExecute(con, "CREATE TABLE heart AS SELECT * FROM read_csv_auto('data/heart_disease.csv')")
+
+#dbExecute: R function from the DBI package to runs a SQL statement
+#con opens session to the DuckDB database.
+```
+
+## Understand the Data
+
+Data is from [UCI's Heart Disease Dataset](https://archive.ics.uci.edu/ml/datasets/heart+Disease), and the official data dictionary can be found here.
+
+```{sql connection=con}
+--Query to check the structure of the heart table
+SELECT * FROM heart LIMIT 10;
+```
+
+```{sql connection=con}
+--Query to see possible values in the column_name (change column_name to the actual column you want to check)
+-- SELECT DISTINCT column_name FROM heart;
+SELECT DISTINCT cp FROM heart;
+```
+
+```{sql connection=con}
+--Query to get the number of patients with missing values in the selected column (change column_name to the actual column you want to check)
+--SELECT COUNT(*) FROM heart WHERE column_name IS NULL;
+SELECT COUNT(*) FROM heart WHERE thalch IS NULL;
+```
+
+```{sql connection=con}
+--Query to get the number of patients by age
+SELECT age, COUNT(*) AS num_patients
+FROM heart
+GROUP BY age
+ORDER BY age;
+```
+
+## Create a Cohort Summary
+
+understand the characteristics of patients with and without heart disease
+
+```{sql connection=con}
+--Split into two groups: target = 1 (disease) vs target = 0 (no disease)
+
+SELECT *
+FROM heart
+WHERE target = 1; -- Patients with heart disease
+SELECT
+FROM heart
+WHERE target = 0; -- Patients without heart disease
+
+```
+
+\`\`\`{sql connection=con}
+
+--Summarize mean age, sex distribution, cholesterol, etc. for each group --GROUP BY target and use AVG(), COUNT(), MIN(), MAX() for summarizing.
