@@ -22,7 +22,7 @@ dbExecute(con, "CREATE TABLE heart AS SELECT * FROM read_csv_auto('data/heart_di
 #con opens session to the DuckDB database.
 ```
 
-## Understand the Data
+## 1. Understand the Data
 
 Data is from [UCI's Heart Disease Dataset](https://archive.ics.uci.edu/ml/datasets/heart+Disease), and the official data dictionary can be found here.
 
@@ -35,6 +35,9 @@ SELECT * FROM heart LIMIT 10;
 --Query to see possible values in the column_name (change column_name to the actual column you want to check)
 -- SELECT DISTINCT column_name FROM heart;
 SELECT DISTINCT cp FROM heart;
+SELECT DISTINCT num FROM heart;
+--0 = no heart disease
+--1–4 = has heart disease
 ```
 
 ```{sql connection=con}
@@ -51,22 +54,219 @@ GROUP BY age
 ORDER BY age;
 ```
 
-## Create a Cohort Summary
-
-understand the characteristics of patients with and without heart disease
+## 2. Create a Cohort Summary
+This section is to understand the characteristics of patients with and without 
+heart disease. I summarize mean age, sex distribution, cholesterol, etc. for each group.
+I also used GROUP BY target and AVG(), COUNT(), MIN(), MAX() for more patient characteristics.
 
 ```{sql connection=con}
+--Create new binary column 'target' based on the 'num' column
 --Split into two groups: target = 1 (disease) vs target = 0 (no disease)
+-- note: remember to close the CASE statement with END
+SELECT 
+  CASE WHEN num = 0 THEN 0 ELSE 1 END AS target,
+  AVG(age) AS mean_age,
+  COUNT(*) AS total_patients,
+  AVG(chol) AS avg_cholesterol,
+  AVG(trestbps) AS avg_blood_pressure,
+  AVG(thalch) AS avg_max_heart_rate,
+  AVG(oldpeak) AS avg_st_depression,
+  MIN(age) AS min_age,
+  MAX(age) AS max_age,
+  FROM heart,
+  GROUP BY target;
+```
+I created a cohort summary by grouping patients based on the num column. I used a CASE WHEN statement to define two cohorts: patients with heart disease and without. Then I aggregated key variables like count, age, cholesterol, and resting blood pressure using GROUP BY.
 
-SELECT *
-FROM heart
-WHERE target = 1; -- Patients with heart disease
-SELECT
-FROM heart
-WHERE target = 0; -- Patients without heart disease
-
+```{sql connection=con}
+--Gender
+SELECT 
+  CASE WHEN num = 0 THEN 0 ELSE 1 END AS target,
+  AVG(age) AS mean_age,
+  COUNT(*) AS total_patients,
+  AVG(chol) AS avg_cholesterol,
+  AVG(trestbps) AS avg_blood_pressure,
+  AVG(thalch) AS avg_max_heart_rate,
+  AVG(oldpeak) AS avg_st_depression,
+  MIN(age) AS min_age,
+  MAX(age) AS max_age,
+  sex
+  FROM heart
+GROUP BY target, sex;
 ```
 
-\`\`\`{sql connection=con}
+This time I also grouped by gender for each group with and without heart disease.
 
---Summarize mean age, sex distribution, cholesterol, etc. for each group --GROUP BY target and use AVG(), COUNT(), MIN(), MAX() for summarizing.
+## 3. Risk Factor Exploration
+Compare heart disease rates by:
+
+-   Age ranges (e.g. <40, 40–60, >60)
+-   Sex (male vs female)
+-   Cholesterol levels (e.g. normal, borderline, high)
+-   Chest pain type (cp)
+-   Resting blood pressure (trestbps)
+-   Fasting blood sugar (fbs)
+-   Thalassemia type (thal)
+
+### Age Groups
+We want age groups (e.g., <40, 40–60, >60) and the percentage with disease in each.
+```{sql connection=con}
+--Query to get heart disease rates by age ranges
+
+SELECT
+  CASE 
+    WHEN age<40 THEN '<40'
+    WHEN age BETWEEN 40 AND 60 THEN '40-60'
+    ELSE '>60' END AS age_group,
+  COUNT (*) AS total_patients,
+  SUM(CASE WHEN num > 0 THEN 1 ELSE 0 END) AS patients_with_disease,
+  AVG(CASE WHEN num > 0 THEN 1 ELSE 0 END)  * 100 AS disease_rate_percentage,
+  FROM heart
+  GROUP BY age_group;
+```
+### Categorical Variables
+Now moving onto categorical variables.
+
+```{sql connection=con}
+SELECT
+  sex,
+  COUNT(*) AS total_patients,
+  SUM(CASE WHEN num > 0 THEN 1 ELSE 0 END) AS with_disease,
+  AVG(CASE WHEN num > 0 THEN 1 ELSE 0 END) * 100 AS disease_rate_percentage
+FROM heart
+GROUP BY sex;
+```
+
+```{sql connection=con}
+SELECT
+  cp,
+  COUNT(*) AS total_patients,
+  SUM(CASE WHEN num > 0 THEN 1 ELSE 0 END) AS with_disease,
+  AVG(CASE WHEN num > 0 THEN 1 ELSE 0 END) * 100 AS disease_rate_percentage
+FROM heart
+GROUP BY cp;
+```
+
+```{sql connection=con}
+SELECT
+  thal,
+  COUNT(*) AS total_patients,
+  SUM(CASE WHEN num > 0 THEN 1 ELSE 0 END) AS with_disease,
+  AVG(CASE WHEN num > 0 THEN 1 ELSE 0 END) * 100 AS disease_rate_percentage
+FROM heart
+GROUP BY thal;
+```
+
+### Multiple Categorical Variables
+Group by sex and age
+```{sql connection=con}
+--Query to get heart disease rates by age ranges
+
+SELECT
+  sex,
+  CASE 
+    WHEN age<40 THEN '<40'
+    WHEN age BETWEEN 40 AND 60 THEN '40-60'
+    ELSE '>60' END AS age_group,
+  COUNT (*) AS total_patients,
+  SUM(CASE WHEN num > 0 THEN 1 ELSE 0 END) AS patients_with_disease,
+  AVG(CASE WHEN num > 0 THEN 1 ELSE 0 END) * 100 AS disease_rate_percentage
+  FROM heart,
+  GROUP BY sex,age_group;
+```
+Males over 60 are at the highest risk (80%).
+
+## 4. Feature Engineering
+
+### Create New Features
+
+```{sql connection=con}
+CREATE TABLE heart_features AS
+SELECT *,
+    CASE WHEN age > 60 THEN 1 ELSE 0 END AS is_elderly,
+    CASE WHEN chol > 240 THEN 1 ELSE 0 END AS high_cholesterol,
+    CASE WHEN trestbps > 140 THEN 1 ELSE 0 END AS risky_bp
+FROM heart;
+```
+
+```{sql connection=con}
+SELECT *
+FROM heart_features
+LIMIT 10;
+```
+## 5. Risk Score Prototype
+I created a simple additive risk score based on age, cholesterol, and blood pressure. Patients with no diagnosed heart disease averaged 0.70 risk factors, while those with the most severe disease averaged 1.25. This suggests that even a basic rule-based score using common risk factors can help stratify patients, though it’s not highly discriminative and could be improved with additional features
+
+Add 1 point for each risk factor (elderly, high cholesterol, risky BP).
+Calculates average risk score for patients with (num > 0) and without (num = 0) heart disease
+```{sql connection=con}
+SELECT
+    num,  -- 0 = no disease, >0 = disease
+    COUNT(*) AS total_patients,
+    AVG(
+        (CASE WHEN is_elderly = 1 THEN 1 ELSE 0 END) +
+        (CASE WHEN high_cholesterol = 1 THEN 1 ELSE 0 END) +
+        (CASE WHEN risky_bp = 1 THEN 1 ELSE 0 END)
+    ) AS avg_risk_score
+FROM heart_features
+GROUP BY num;
+```
+
+Key observations:
+
+Patients with no heart disease (num = 0) have the lowest average score (~0.70).
+
+As num increases from 0 to 4, the average risk score generally increases (from 0.70 to 1.25).
+
+Patients with highest severity (num = 4) have nearly double the risk score compared to healthy patients.
+
+The increase is not perfectly linear, but there’s a clear upward trend between disease severity and accumulated risk factors.
+
+## 6. Prepare Queries for Metabase
+
+### Average Cholesterol by Disease Status
+
+```{sql connection=con}
+SELECT
+    CASE 
+        WHEN age < 40 THEN '<40'
+        WHEN age BETWEEN 40 AND 60 THEN '40-60'
+        ELSE '>60'
+    END AS age_group,
+    COUNT(*) AS total_patients,
+    SUM(CASE WHEN num > 0 THEN 1 ELSE 0 END) AS patients_with_disease,
+    ROUND(100.0 * SUM(CASE WHEN num > 0 THEN 1 ELSE 0 END) / COUNT(*), 2) AS pct_with_disease
+FROM heart
+GROUP BY age_group
+ORDER BY age_group;
+```
+
+### Average Cholesterol by Disease Status
+
+```{sql connection=con}
+SELECT
+    num AS has_disease,
+    ROUND(AVG(chol), 2) AS avg_cholesterol
+FROM heart
+GROUP BY num;
+```
+
+### Risk Score Distribution
+
+```{sql connection=con}
+WITH risk AS (
+    SELECT
+        (CASE WHEN age > 60 THEN 1 ELSE 0 END +
+         CASE WHEN chol > 240 THEN 1 ELSE 0 END +
+         CASE WHEN trestbps > 140 THEN 1 ELSE 0 END) AS risk_score,
+        num
+    FROM heart
+)
+SELECT
+    risk_score,
+    COUNT(*) AS patient_count,
+    ROUND(100.0 * SUM(CASE WHEN num > 0 THEN 1 ELSE 0 END) / COUNT(*), 2) AS pct_with_disease
+FROM risk
+GROUP BY risk_score
+ORDER BY risk_score;
+```
